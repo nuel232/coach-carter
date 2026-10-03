@@ -1,7 +1,5 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
 
 const SYSTEM = `You are Coach Carter — a direct, no-nonsense basketball coach with 20+ years of experience at every level from youth leagues to professional academies. Named after the legendary Ken Carter.
 
@@ -20,18 +18,10 @@ Keep responses under 200 words unless a drill plan or play diagram is requested.
 export async function POST(req: NextRequest) {
   try {
     const { history, message, mode } = await req.json();
-
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      systemInstruction: SYSTEM,
-    });
-
-    const formattedHistory = (history || []).map((m: { role: string; content: string }) => ({
-      role: m.role === "coach" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const chat = model.startChat({ history: formattedHistory });
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error("GOOGLE_API_KEY is not configured.");
+    }
 
     let prompt = message;
     if (mode === "summary") {
@@ -42,8 +32,28 @@ export async function POST(req: NextRequest) {
       prompt = `Describe the "${message}" play clearly. Then output a JSON block for the diagram with positions and actions in the exact format specified.`;
     }
 
-    const result = await chat.sendMessage(prompt);
-    const text = result.response.text();
+    const formattedHistory = Array.isArray(history)
+      ? history.map((m: { role: string; content: string }) => {
+          const content = [{ type: "text" as const, text: m.content }];
+          return m.role === "coach"
+            ? { type: "model_output" as const, content }
+            : { type: "user_input" as const, content };
+        })
+      : [];
+
+    const genAI = new GoogleGenAI({ apiKey });
+    const result = await genAI.interactions.create({
+      model: "gemini-3.8-flash",
+      system_instruction: SYSTEM,
+      input: [
+        ...formattedHistory,
+        { type: "user_input", content: [{ type: "text", text: prompt }] },
+      ],
+    });
+    const text = result.output_text;
+    if (!text) {
+      throw new Error("Gemini returned no text output.");
+    }
     return NextResponse.json({ text });
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : String(err);
