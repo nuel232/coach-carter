@@ -100,7 +100,7 @@ function Bubble({ msg }: { msg: Message }) {
     >
       {!isUser && <CoachAvatar />}
 
-      <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`} style={{ maxWidth: "75%" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: isUser ? "flex-end" : "flex-start", maxWidth: "75%", minWidth: 0 }}>
         {displayText && (
           <div
             className={`px-4 py-3 text-sm leading-relaxed msg-content ${
@@ -309,7 +309,7 @@ export default function Home() {
   const isEmpty = messages.length === 0;
 
   return (
-    <div className="flex flex-col h-screen" style={{ background: "#0a0a0a" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0a0a0a", overflow: "hidden" }}>
 
       {/* ── Header ── */}
       <header
@@ -388,8 +388,8 @@ export default function Home() {
       </div>
 
       {/* ── Messages area ── */}
-      <div className="flex-1 overflow-y-auto min-h-0" style={{ padding: "0" }}>
-        <div className="flex flex-col gap-4 px-4 py-5">
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "20px 16px" }}>
           {isEmpty
             ? <EmptyState mode={mode} onSend={send} />
             : messages.map(msg => <Bubble key={msg.id} msg={msg} />)
