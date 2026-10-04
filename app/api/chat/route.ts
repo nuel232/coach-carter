@@ -41,20 +41,45 @@ export async function POST(req: NextRequest) {
         })
       : [];
 
+    // Only the last few turns matter for coaching chat; shorter input = faster first token.
+    const recent = formattedHistory.slice(-10);
+
     const genAI = new GoogleGenAI({ apiKey });
-    const result = await genAI.interactions.create({
+    // create() resolves once the connection is open, so quota/auth errors (429, 401)
+    // still throw here and reach the catch below as a normal JSON error.
+    const stream = await genAI.interactions.create({
       model: "gemini-3.8-flash",
       system_instruction: SYSTEM,
+      stream: true,
+      generation_config: {
+        thinking_level: "minimal", // skip long hidden reasoning; biggest latency win
+        max_output_tokens: mode === "chat" ? 500 : 1200,
+      },
       input: [
-        ...formattedHistory,
+        ...recent,
         { type: "user_input", content: [{ type: "text", text: prompt }] },
       ],
     });
-    const text = result.output_text;
-    if (!text) {
-      throw new Error("Gemini returned no text output.");
-    }
-    return NextResponse.json({ text });
+
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (event.event_type === "step.delta" && event.delta.type === "text") {
+              controller.enqueue(encoder.encode(event.delta.text));
+            }
+          }
+          controller.close();
+        } catch (e) {
+          controller.error(e);
+        }
+      },
+    });
+
+    return new Response(body, {
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
   } catch (err: unknown) {
     const error = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error }, { status: 500 });

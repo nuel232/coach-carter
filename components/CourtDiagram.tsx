@@ -36,10 +36,10 @@ export default function CourtDiagram({ data }: { data: DiagramData }) {
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-[#2a2a2a] bg-[#1a1a1a]">
-      <div className="px-4 py-2.5 border-b border-[#2a2a2a] flex items-center justify-between">
-        <span className="text-xs font-mono text-orange-400 tracking-widest uppercase">▶ {data.play}</span>
-        <span className="text-[10px] text-neutral-500 font-mono">drag players to adjust</span>
+    <div className="overflow-hidden rounded-2xl border border-line bg-ink-900">
+      <div className="flex items-center justify-between border-b border-line px-4 py-3">
+        <span className="font-display text-lg font-bold uppercase tracking-wider text-ember-400">{data.play}</span>
+        <span className="font-mono text-[10px] text-dust/70">drag players to adjust</span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -50,10 +50,10 @@ export default function CourtDiagram({ data }: { data: DiagramData }) {
         onMouseLeave={() => setDragging(null)}
       >
         {/* Court surface */}
-        <rect width={W} height={H} fill="#1a1210" />
+        <rect width={W} height={H} className="fill-court" />
 
         {/* Court lines */}
-        <g stroke="#c8a96e" strokeWidth="1.5" fill="none" opacity="0.5">
+        <g className="stroke-court-line" strokeWidth="1.5" fill="none" opacity="0.55">
           {/* Boundary */}
           <rect x="20" y="15" width={W-40} height={H-30} rx="4" />
           {/* Half court line */}
@@ -67,7 +67,7 @@ export default function CourtDiagram({ data }: { data: DiagramData }) {
           <path d={`M 20 ${H/2-55} Q 165 ${H/2} 20 ${H/2+55}`} fill="none" />
           {/* Left basket */}
           <circle cx="55" cy={H/2} r="10" />
-          <circle cx="55" cy={H/2} r="5" fill="#c8a96e" opacity="0.8" />
+          <circle cx="55" cy={H/2} r="5" className="fill-court-line" opacity="0.8" />
           <line x1="20" y1={H/2} x2="45" y2={H/2} strokeWidth="2" />
           {/* Right paint */}
           <rect x={W-110} y={H/2-55} width="90" height="110" />
@@ -76,7 +76,7 @@ export default function CourtDiagram({ data }: { data: DiagramData }) {
           <path d={`M ${W-20} ${H/2-55} Q ${W-165} ${H/2} ${W-20} ${H/2+55}`} fill="none" />
           {/* Right basket */}
           <circle cx={W-55} cy={H/2} r="10" />
-          <circle cx={W-55} cy={H/2} r="5" fill="#c8a96e" opacity="0.8" />
+          <circle cx={W-55} cy={H/2} r="5" className="fill-court-line" opacity="0.8" />
           <line x1={W-20} y1={H/2} x2={W-45} y2={H/2} strokeWidth="2" />
           {/* Three point line left */}
           <path d={`M 20 ${H/2-90} Q 145 ${H/2} 20 ${H/2+90}`} />
@@ -141,18 +141,18 @@ export default function CourtDiagram({ data }: { data: DiagramData }) {
       </svg>
 
       {/* Legend */}
-      <div className="px-4 py-2.5 border-t border-[#2a2a2a] flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-4 py-3">
         {positions.map(p => (
           <div key={p.id} className="flex items-center gap-1.5">
             <div className="w-3 h-3 rounded-full" style={{ background: COLORS[p.id] }} />
-            <span className="text-[10px] font-mono text-neutral-400">{p.id}</span>
+            <span className="text-[10px] font-mono text-dust">{p.id}</span>
           </div>
         ))}
         <div className="flex items-center gap-1.5 ml-auto">
-          <div className="w-6 border-t border-dashed border-neutral-500" />
-          <span className="text-[10px] font-mono text-neutral-500">screen/pick</span>
-          <div className="w-6 border-t border-neutral-500" />
-          <span className="text-[10px] font-mono text-neutral-500">drive/pass</span>
+          <div className="w-6 border-t border-dashed border-dust/60" />
+          <span className="text-[10px] font-mono text-dust">screen/pick</span>
+          <div className="w-6 border-t border-dust/60" />
+          <span className="text-[10px] font-mono text-dust">drive/pass</span>
         </div>
       </div>
     </div>

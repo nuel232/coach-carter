@@ -2,8 +2,12 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Zap, BookOpen, Layout, FileText, Mic, MicOff, RotateCcw, ChevronRight } from "lucide-react";
+import {
+  ArrowUp, BookOpen, ChevronRight, FileText, LayoutDashboard,
+  Mic, MicOff, RotateCcw, TriangleAlert, Zap,
+} from "lucide-react";
 import CourtDiagram from "@/components/CourtDiagram";
+import ThemeToggle from "@/components/ThemeToggle";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Mode = "chat" | "drill" | "play" | "summary";
@@ -14,6 +18,7 @@ interface Message {
   content: string;
   mode?: Mode;
   diagram?: any;
+  isError?: boolean;
   timestamp: Date;
 }
 
@@ -25,31 +30,61 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   summary: [],
 };
 
-const MODE_META = {
-  chat:    { label: "Ask Carter",      icon: Zap,      color: "#f97316" },
-  drill:   { label: "Drill Plan",      icon: BookOpen, color: "#3b82f6" },
-  play:    { label: "Play Diagram",    icon: Layout,   color: "#22c55e" },
-  summary: { label: "Session Summary", icon: FileText, color: "#a855f7" },
+const MODE_META: Record<Mode, { label: string; icon: typeof Zap; title: string; blurb: string; placeholder: string }> = {
+  chat: {
+    label: "Ask Carter", icon: Zap,
+    title: "What's on your mind, Coach?",
+    blurb: "Strategy, drills, mindset, X's and O's. Ask it straight and Carter will answer the same way.",
+    placeholder: "Ask Coach Carter anything…",
+  },
+  drill: {
+    label: "Drill Plan", icon: BookOpen,
+    title: "What skill are we sharpening?",
+    blurb: "Name the position or skill and Carter will build a three-drill practice block around it.",
+    placeholder: "Describe the skill to train…",
+  },
+  play: {
+    label: "Play Diagram", icon: LayoutDashboard,
+    title: "Which play are we running?",
+    blurb: "Name any play and see it drawn on the court. Drag the players to tweak the spacing.",
+    placeholder: "Name a play (e.g. Pick and Roll)…",
+  },
+  summary: {
+    label: "Session Summary", icon: FileText,
+    title: "Session summary",
+    blurb: "Carter wraps up everything you covered in five bullet points.",
+    placeholder: "Ask Coach Carter anything…",
+  },
 };
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function renderContent(text: string) {
-  const escaped = text
+  const escaped = escapeHtml(text)
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>");
-  const lines = escaped.split("\n");
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
   const out: string[] = [];
-  let inList = false;
-  for (const line of lines) {
-    if (line.startsWith("- ")) {
-      if (!inList) { out.push("<ul>"); inList = true; }
-      out.push(`<li>${line.slice(2)}</li>`);
+  let list: "ul" | "ol" | null = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const line of escaped.split("\n")) {
+    const bullet = line.match(/^\s*[-*•]\s+(.*)/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)/);
+    const heading = line.match(/^#{1,4}\s+(.*)/);
+    if (bullet || numbered) {
+      const kind = bullet ? "ul" : "ol";
+      if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; }
+      out.push(`<li>${(bullet ?? numbered)![1]}</li>`);
     } else {
-      if (inList) { out.push("</ul>"); inList = false; }
-      if (line.trim()) out.push(`<p>${line}</p>`);
+      close();
+      if (heading) out.push(`<h3>${heading[1]}</h3>`);
+      else if (line.trim()) out.push(`<p>${line}</p>`);
     }
   }
-  if (inList) out.push("</ul>");
+  close();
   return out.join("");
 }
 
@@ -68,17 +103,27 @@ function stripDiagramJson(text: string) {
     .trim();
 }
 
+function friendlyError(raw: string) {
+  if (/429|rate limit|quota/i.test(raw)) {
+    const wait = raw.match(/retry in ([0-9hms. ]+?)(?: or|\.|$)/i)?.[1];
+    return {
+      title: "Carter's catching his breath",
+      body: `The free Gemini quota is used up for now${wait ? ` — try again in about ${wait.trim()}` : ""}.`,
+    };
+  }
+  if (/GOOGLE_API_KEY/i.test(raw)) {
+    return { title: "API key missing", body: "Add GOOGLE_API_KEY to your .env.local and restart the dev server." };
+  }
+  return { title: "Something went wrong", body: raw };
+}
+
 /* ── Coach avatar ───────────────────────────────────────────────────── */
 function CoachAvatar({ size = 36 }: { size?: number }) {
   return (
     <div
-      className="flex-shrink-0 flex items-center justify-center rounded-full"
-      style={{
-        width: size, height: size,
-        background: "linear-gradient(135deg, #f97316, #ea580c)",
-        boxShadow: "0 0 0 2px #f9731622, 0 2px 8px #f9731644",
-        fontSize: size * 0.48,
-      }}
+      className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-ember-400 to-ember-600 shadow-[0_0_0_3px_rgb(255_107_26/0.14),0_4px_14px_rgb(255_107_26/0.3)]"
+      style={{ width: size, height: size, fontSize: size * 0.5 }}
+      aria-hidden
     >
       🏀
     </div>
@@ -89,43 +134,62 @@ function CoachAvatar({ size = 36 }: { size?: number }) {
 function Bubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
   const diagram = msg.diagram;
-  const displayText = diagram ? stripDiagramJson(msg.content) : msg.content;
+  // While a play streams in, hide the raw diagram JSON as soon as it starts.
+  const displayText = diagram
+    ? stripDiagramJson(msg.content)
+    : msg.mode === "play" && !isUser
+      ? msg.content.split(/```json|\{\s*"play"/)[0].trim()
+      : msg.content;
+  const time = msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (msg.isError) {
+    const err = friendlyError(msg.content);
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-start gap-3"
+      >
+        <CoachAvatar />
+        <div className="max-w-[min(34rem,85%)] rounded-2xl rounded-tl-md border border-red-500/25 bg-red-500/[0.07] px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-red-600 dark:text-red-300">
+            <TriangleAlert size={15} />
+            {err.title}
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-red-900/70 dark:text-red-100/70">{err.body}</p>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-      className={`flex gap-3 items-end ${isUser ? "flex-row-reverse" : "flex-row"}`}
+      className={`flex items-end gap-3 ${isUser ? "flex-row-reverse" : ""}`}
     >
-      {!isUser && <CoachAvatar />}
+      {!isUser && <div className="self-start"><CoachAvatar /></div>}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: isUser ? "flex-end" : "flex-start", maxWidth: "75%", minWidth: 0 }}>
+      <div className={`flex min-w-0 max-w-[min(38rem,88%)] flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
         {displayText && (
           <div
-            className={`px-4 py-3 text-sm leading-relaxed msg-content ${
+            className={`msg-content px-4 py-3 ${
               isUser
-                ? "rounded-2xl rounded-br-md text-white"
-                : "rounded-2xl rounded-bl-md text-neutral-100"
+                ? "rounded-2xl rounded-br-md bg-gradient-to-br from-ember-500 to-ember-600 font-medium text-white shadow-[0_6px_20px_rgb(255_107_26/0.22)]"
+                : "rounded-2xl rounded-tl-md border border-line bg-ink-900 text-chalk"
             }`}
-            style={
-              isUser
-                ? { background: "linear-gradient(135deg, #f97316, #ea580c)", boxShadow: "0 2px 12px #f9731630" }
-                : { background: "#161616", border: "1px solid #252525" }
-            }
             dangerouslySetInnerHTML={{ __html: renderContent(displayText) }}
           />
         )}
 
         {diagram && (
-          <div className="w-full" style={{ maxWidth: 420 }}>
+          <div className="w-full max-w-[26rem]">
             <CourtDiagram data={diagram} />
           </div>
         )}
 
-        <span className="text-[10px] text-neutral-600 px-1">
-          {msg.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </span>
+        <span className="px-1 text-[11px] text-dust/60">{time}</span>
       </div>
     </motion.div>
   );
@@ -134,18 +198,11 @@ function Bubble({ msg }: { msg: Message }) {
 /* ── Typing indicator ───────────────────────────────────────────────── */
 function TypingIndicator() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex gap-3 items-end"
-    >
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-3">
       <CoachAvatar />
-      <div
-        className="px-4 py-3 rounded-2xl rounded-bl-md flex gap-1.5 items-center"
-        style={{ background: "#161616", border: "1px solid #252525" }}
-      >
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md border border-line bg-ink-900 px-4 py-3.5" aria-label="Carter is typing">
         {[0, 1, 2].map(i => (
-          <div key={i} className="typing-dot w-2 h-2 rounded-full" style={{ background: "#f97316" }} />
+          <span key={i} className="typing-dot size-1.5 rounded-full bg-ember-500" />
         ))}
       </div>
     </motion.div>
@@ -154,69 +211,44 @@ function TypingIndicator() {
 
 /* ── Empty state ────────────────────────────────────────────────────── */
 function EmptyState({ mode, onSend }: { mode: Mode; onSend: (s: string) => void }) {
+  const meta = MODE_META[mode];
   return (
     <motion.div
-      initial={{ opacity: 0, y: 24 }}
+      key={mode}
+      initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="flex flex-col items-center justify-center h-full gap-8 px-4 text-center"
+      transition={{ duration: 0.35 }}
+      className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-8 py-10 text-center"
     >
-      {/* Logo */}
       <div className="relative">
-        <div
-          className="w-24 h-24 rounded-3xl flex items-center justify-center text-5xl"
-          style={{
-            background: "linear-gradient(135deg, #f9731618, #ea580c10)",
-            border: "1px solid #f9731630",
-            boxShadow: "0 0 40px #f9731618",
-          }}
-        >
+        <div className="flex size-24 items-center justify-center rounded-[1.75rem] border border-ember-500/25 bg-gradient-to-br from-ember-500/20 to-ember-600/5 text-5xl shadow-[0_0_60px_rgb(255_107_26/0.18)]">
           🏀
         </div>
-        <div
-          className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center"
-          style={{ background: "#22c55e", fontSize: 11 }}
-        >
+        <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-white dark:text-ink-950 ring-4 ring-ink-950">
           ✓
-        </div>
+        </span>
       </div>
 
-      <div>
-        <h2 className="text-2xl font-bold mb-2 tracking-tight">
-          {mode === "drill" ? "What skill are we sharpening?" :
-           mode === "play" ? "Which play do you want to run?" :
-           "What's on your mind, Coach?"}
+      <div className="space-y-3">
+        <h2 className="font-display text-4xl font-bold uppercase leading-none tracking-wide sm:text-5xl">
+          {meta.title}
         </h2>
-        <p className="text-sm text-neutral-500 max-w-[280px] leading-relaxed">
-          {mode === "drill" ? "Describe the position or skill and Carter will build a custom drill plan." :
-           mode === "play" ? "Name any play and see it drawn on the court with player movement." :
-           "Ask Coach Carter anything about basketball — strategy, drills, mindset, X's and O's."}
-        </p>
+        <p className="mx-auto max-w-sm text-[15px] leading-relaxed text-dust">{meta.blurb}</p>
       </div>
 
-      {/* Suggestion chips */}
       {SUGGESTIONS[mode].length > 0 && (
-        <div className="flex flex-col gap-2 w-full max-w-sm">
+        <div className="flex w-full flex-col gap-2">
           {SUGGESTIONS[mode].map((s, i) => (
             <motion.button
               key={s}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.06 }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 + i * 0.05 }}
               onClick={() => onSend(s)}
-              className="flex items-center justify-between w-full px-4 py-3 rounded-xl text-sm text-left transition-all group"
-              style={{ background: "#131313", border: "1px solid #222" }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = "#f9731640";
-                (e.currentTarget as HTMLElement).style.background = "#f9731608";
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = "#222";
-                (e.currentTarget as HTMLElement).style.background = "#131313";
-              }}
+              className="group flex w-full items-center justify-between rounded-xl border border-line bg-ink-900/70 px-4 py-3.5 text-left text-[15px] text-chalk/90 transition hover:border-ember-500/50 hover:bg-ember-500/[0.07] hover:text-chalk focus-visible:outline-2 focus-visible:outline-ember-500"
             >
-              <span className="text-neutral-300">{s}</span>
-              <ChevronRight size={14} className="text-neutral-600 group-hover:text-orange-400 transition-colors" />
+              {s}
+              <ChevronRight size={16} className="text-dust/50 transition group-hover:translate-x-0.5 group-hover:text-ember-400" />
             </motion.button>
           ))}
         </div>
@@ -237,7 +269,7 @@ export default function Home() {
   const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
   /* Voice */
@@ -272,29 +304,53 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      // Errors are UI-only; never feed them back to the model as history.
+      const history = messages.filter(m => !m.isError).map(m => ({ role: m.role, content: m.content }));
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ history, message: msg, mode: activeMode }),
       });
-      const data = await res.json();
-      const responseText: string = data.text || data.error || "Something went wrong.";
-      const diagram = activeMode === "play" ? extractDiagram(responseText) : null;
 
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(),
-        role: "coach",
-        content: responseText,
-        mode: activeMode,
-        diagram,
-        timestamp: new Date(),
-      }]);
+      const coachId = (Date.now() + 1).toString();
+      const addCoach = (content: string, extra: Partial<Message> = {}) =>
+        setMessages(prev => [...prev, {
+          id: coachId, role: "coach", content, mode: activeMode, timestamp: new Date(), ...extra,
+        }]);
+      const patchCoach = (content: string, extra: Partial<Message> = {}) =>
+        setMessages(prev => prev.map(m => (m.id === coachId ? { ...m, content, ...extra } : m)));
+
+      // Errors thrown before the stream opens come back as JSON.
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        addCoach(data.error || "Something went wrong.", { isError: true });
+        return;
+      }
+
+      // Stream tokens into the bubble as they arrive.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+      let started = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value, { stream: true });
+        if (!started) { started = true; setLoading(false); addCoach(full); }
+        else patchCoach(full);
+      }
+      if (!started) {
+        addCoach("Gemini returned no text output.", { isError: true });
+      } else if (activeMode === "play") {
+        const diagram = extractDiagram(full);
+        if (diagram) patchCoach(full, { diagram });
+      }
     } catch {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "coach",
         content: "Network error — check your connection and try again.",
+        isError: true,
         timestamp: new Date(),
       }]);
     } finally {
@@ -307,189 +363,158 @@ export default function Home() {
   };
 
   const isEmpty = messages.length === 0;
+  const canSend = !loading && (input.trim().length > 0 || mode === "summary");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0a0a0a", overflow: "hidden" }}>
-
+    <div className="flex h-dvh flex-col">
       {/* ── Header ── */}
-      <header
-        className="flex-shrink-0 flex items-center justify-between px-5 py-3"
-        style={{
-          background: "#0a0a0a",
-          borderBottom: "1px solid #161616",
-          backdropFilter: "blur(20px)",
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <CoachAvatar size={38} />
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-[15px] tracking-wide text-white">Coach Carter</h1>
-              <span
-                className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
-                style={{ background: "#f9731618", color: "#f97316", border: "1px solid #f9731630" }}
-              >
-                AI
-              </span>
+      <header className="shrink-0 border-b border-line/70 bg-ink-950/70 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <CoachAvatar size={40} />
+            <div className="leading-tight">
+              <div className="flex items-center gap-2">
+                <h1 className="font-display text-xl font-bold uppercase tracking-wider">Coach Carter</h1>
+                <span className="rounded-md border border-ember-500/30 bg-ember-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-ember-400">
+                  AI
+                </span>
+              </div>
+              <p className="text-xs text-dust">Basketball Coaching Assistant</p>
             </div>
-            <p className="text-[11px]" style={{ color: "#555" }}>Basketball Coaching Assistant</p>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <div className="hidden items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/[0.07] px-2.5 py-1 sm:flex">
+              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500 dark:bg-emerald-400" />
+              <span className="font-mono text-[10px] font-medium tracking-wider text-emerald-600 dark:text-emerald-400">LIVE</span>
+            </div>
+            <ThemeToggle />
+            {!isEmpty && (
+              <button
+                onClick={() => setMessages([])}
+                title="Clear session"
+                aria-label="Clear session"
+                className="rounded-lg p-2 text-dust transition hover:bg-ink-800 hover:text-ember-400"
+              >
+                <RotateCcw size={16} />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Live indicator */}
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-            style={{ background: "#22c55e0f", border: "1px solid #22c55e22" }}
-          >
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[10px] font-mono text-green-400">LIVE</span>
-          </div>
-          {messages.length > 0 && (
-            <button
-              onClick={() => setMessages([])}
-              title="Clear session"
-              className="p-2 rounded-xl transition-colors"
-              style={{ color: "#444" }}
-              onMouseEnter={e => (e.currentTarget.style.color = "#f97316")}
-              onMouseLeave={e => (e.currentTarget.style.color = "#444")}
-            >
-              <RotateCcw size={14} />
-            </button>
-          )}
-        </div>
+        {/* ── Mode tabs ── */}
+        <nav className="no-scrollbar mx-auto flex w-full max-w-3xl gap-1 overflow-x-auto px-4 pb-3 sm:px-6" aria-label="Mode">
+          {(Object.keys(MODE_META) as Mode[]).map(key => {
+            const { icon: Icon, label } = MODE_META[key];
+            const active = mode === key;
+            return (
+              <button
+                key={key}
+                onClick={() => { setMode(key); if (key === "summary") send("", "summary"); }}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition focus-visible:outline-2 focus-visible:outline-ember-500 ${
+                  active ? "text-ember-300" : "text-dust hover:text-chalk"
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="mode-pill"
+                    className="absolute inset-0 rounded-full border border-ember-500/40 bg-ember-500/[0.12]"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                )}
+                <Icon size={14} className="relative" />
+                <span className="relative">{label}</span>
+              </button>
+            );
+          })}
+        </nav>
       </header>
 
-      {/* ── Mode tabs ── */}
-      <div
-        className="flex-shrink-0 flex gap-1 px-4 py-2.5 overflow-x-auto"
-        style={{ borderBottom: "1px solid #141414", scrollbarWidth: "none" }}
-      >
-        {(Object.entries(MODE_META) as [Mode, typeof MODE_META[Mode]][]).map(([key, meta]) => {
-          const Icon = meta.icon;
-          const active = mode === key;
-          return (
-            <motion.button
-              key={key}
-              onClick={() => { setMode(key); if (key === "summary") send("", "summary"); }}
-              className="flex-shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all"
-              style={{
-                background: active ? meta.color + "18" : "transparent",
-                border: `1px solid ${active ? meta.color + "50" : "transparent"}`,
-                color: active ? meta.color : "#444",
-              }}
-              whileTap={{ scale: 0.95 }}
-            >
-              <Icon size={13} />
-              {meta.label}
-            </motion.button>
-          );
-        })}
-      </div>
-
-      {/* ── Messages area ── */}
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: 0 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "20px 16px" }}>
-          {isEmpty
-            ? <EmptyState mode={mode} onSend={send} />
-            : messages.map(msg => <Bubble key={msg.id} msg={msg} />)
-          }
+      {/* ── Messages ── */}
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5 px-4 py-6 sm:px-6">
+          {isEmpty ? (
+            <EmptyState mode={mode} onSend={send} />
+          ) : (
+            messages.map(msg => <Bubble key={msg.id} msg={msg} />)
+          )}
           {loading && <TypingIndicator />}
           <div ref={bottomRef} />
         </div>
-      </div>
+      </main>
 
-      {/* ── Suggestion strip (while chatting) ── */}
-      <AnimatePresence>
-        {!isEmpty && !loading && SUGGESTIONS[mode].length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            className="flex-shrink-0 flex gap-2 px-4 py-2 overflow-x-auto"
-            style={{ scrollbarWidth: "none", borderTop: "1px solid #111" }}
-          >
-            {SUGGESTIONS[mode].slice(0, 4).map(s => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-                style={{ background: "#111", border: "1px solid #1e1e1e", color: "#666", whiteSpace: "nowrap" }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "#f9731440";
-                  (e.currentTarget as HTMLElement).style.color = "#f97316";
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e";
-                  (e.currentTarget as HTMLElement).style.color = "#666";
-                }}
+      {/* ── Composer ── */}
+      <footer className="shrink-0 bg-gradient-to-t from-ink-950 via-ink-950 to-transparent pt-2">
+        <div className="mx-auto w-full max-w-3xl px-4 pb-4 sm:px-6">
+          <AnimatePresence>
+            {!isEmpty && !loading && SUGGESTIONS[mode].length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                className="no-scrollbar mb-3 flex gap-2 overflow-x-auto"
               >
-                {s}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                {SUGGESTIONS[mode].slice(0, 4).map(s => (
+                  <button
+                    key={s}
+                    onClick={() => send(s)}
+                    className="shrink-0 whitespace-nowrap rounded-full border border-line bg-ink-900/80 px-3.5 py-1.5 text-xs font-medium text-dust transition hover:border-ember-500/50 hover:text-ember-300"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-      {/* ── Input bar ── */}
-      <div
-        className="flex-shrink-0 px-4 py-3"
-        style={{ borderTop: "1px solid #141414", background: "#0a0a0a" }}
-      >
-        <div
-          className="flex gap-3 items-end px-4 py-3 rounded-2xl transition-all"
-          style={{ background: "#111", border: "1px solid #1e1e1e" }}
-          onFocus={() => {}}
-        >
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={e => {
-              setInput(e.target.value);
-              e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-            }}
-            onKeyDown={handleKey}
-            placeholder={
-              mode === "drill" ? "Describe the skill to train…" :
-              mode === "play"  ? "Name a play (e.g. Pick and Roll)…" :
-              "Ask Coach Carter anything…"
-            }
-            rows={1}
-            disabled={loading}
-            className="flex-1 bg-transparent text-sm resize-none outline-none leading-relaxed"
-            style={{ color: "#e5e5e5", maxHeight: 120, caretColor: "#f97316" }}
-          />
+          <div className="flex items-end gap-2 rounded-2xl border border-line bg-ink-900 py-2 pl-4 pr-2 shadow-[0_8px_30px_var(--shadow)] transition focus-within:border-ember-500/60 focus-within:shadow-[0_0_0_4px_rgb(255_107_26/0.1),0_8px_30px_var(--shadow)]">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={e => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
+              }}
+              onKeyDown={handleKey}
+              placeholder={MODE_META[mode].placeholder}
+              rows={1}
+              disabled={loading}
+              className="max-h-36 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-relaxed text-chalk caret-ember-500 outline-none placeholder:text-dust/60"
+            />
 
-          {/* Mic */}
-          <button
-            onClick={toggleVoice}
-            className="flex-shrink-0 p-1.5 rounded-lg transition-colors"
-            style={{ color: listening ? "#f97316" : "#333" }}
-            title="Voice input"
-          >
-            {listening ? <MicOff size={16} /> : <Mic size={16} />}
-          </button>
+            <button
+              onClick={toggleVoice}
+              title="Voice input"
+              aria-label="Voice input"
+              className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-ink-800 ${
+                listening ? "text-ember-400" : "text-dust"
+              }`}
+            >
+              {listening ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
 
-          {/* Send */}
-          <motion.button
-            whileTap={{ scale: 0.88 }}
-            onClick={() => send()}
-            disabled={loading || (!input.trim() && mode !== "summary")}
-            className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all"
-            style={{
-              background: (!input.trim() && mode !== "summary") || loading ? "#1e1e1e" : "linear-gradient(135deg, #f97316, #ea580c)",
-              boxShadow: (!input.trim() && mode !== "summary") || loading ? "none" : "0 2px 12px #f9731640",
-            }}
-          >
-            <Send size={15} className="text-white" style={{ opacity: (!input.trim() && mode !== "summary") ? 0.3 : 1 }} />
-          </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => send()}
+              disabled={!canSend}
+              aria-label="Send"
+              className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition ${
+                canSend
+                  ? "bg-gradient-to-br from-ember-500 to-ember-600 text-white shadow-[0_4px_16px_rgb(255_107_26/0.4)]"
+                  : "bg-ink-800 text-dust/40"
+              }`}
+            >
+              <ArrowUp size={18} strokeWidth={2.5} />
+            </motion.button>
+          </div>
+
+          <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-dust/40">
+            Powered by Google Gemini · Coach Carter AI
+          </p>
         </div>
-
-        <p className="text-center mt-2.5 text-[10px] font-mono tracking-widest" style={{ color: "#252525" }}>
-          POWERED BY GOOGLE GEMINI · COACH CARTER AI
-        </p>
-      </div>
+      </footer>
     </div>
   );
 }
