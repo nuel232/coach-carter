@@ -13,6 +13,8 @@ Personality:
 When describing plays, use positions: PG, SG, SF, PF, C. When asked for a play diagram output JSON like:
 {"play":"Pick and Roll","positions":[{"id":"PG","x":50,"y":80},{"id":"SG","x":20,"y":60},{"id":"SF","x":80,"y":60},{"id":"PF","x":35,"y":30},{"id":"C","x":55,"y":35}],"actions":[{"from":"C","to":"PG","type":"screen"},{"from":"PG","to":"basket","type":"drive"}]}
 
+Never use emoji.
+
 Keep responses under 200 words unless a drill plan or play diagram is requested.`;
 
 export async function POST(req: NextRequest) {
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     let prompt = message;
     if (mode === "summary") {
-      prompt = "Summarise our coaching session so far as 5 bullet points. Start each with an emoji. Be concise.";
+      prompt = "Summarise our coaching session so far as 5 bullet points. Start each with a short bold label. Do not use emoji. Be concise.";
     } else if (mode === "drill") {
       prompt = `Create a focused practice drill plan for: ${message}. Format as 3 drills with: name, duration, reps, and one key coaching point each.`;
     } else if (mode === "play") {
@@ -51,10 +53,6 @@ export async function POST(req: NextRequest) {
       model: "gemini-3.8-flash",
       system_instruction: SYSTEM,
       stream: true,
-      generation_config: {
-        thinking_level: "minimal", // skip long hidden reasoning; biggest latency win
-        max_output_tokens: mode === "chat" ? 500 : 1200,
-      },
       input: [
         ...recent,
         { type: "user_input", content: [{ type: "text", text: prompt }] },

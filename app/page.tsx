@@ -3,11 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowUp, BookOpen, ChevronRight, FileText, LayoutDashboard,
+  ArrowUp, BookOpen, Check, ChevronRight, FileText, LayoutDashboard,
   Mic, MicOff, RotateCcw, TriangleAlert, Zap,
 } from "lucide-react";
 import CourtDiagram from "@/components/CourtDiagram";
 import ThemeToggle from "@/components/ThemeToggle";
+import BasketballIcon from "@/components/icons/BasketballIcon";
 
 /* ── Types ─────────────────────────────────────────────────────────── */
 type Mode = "chat" | "drill" | "play" | "summary";
@@ -122,10 +123,10 @@ function CoachAvatar({ size = 36 }: { size?: number }) {
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-ember-400 to-ember-600 shadow-[0_0_0_3px_rgb(255_107_26/0.14),0_4px_14px_rgb(255_107_26/0.3)]"
-      style={{ width: size, height: size, fontSize: size * 0.5 }}
+      style={{ width: size, height: size }}
       aria-hidden
     >
-      🏀
+      <BasketballIcon size={Math.round(size * 0.58)} className="text-white" />
     </div>
   );
 }
@@ -152,11 +153,11 @@ function Bubble({ msg }: { msg: Message }) {
       >
         <CoachAvatar />
         <div className="max-w-[min(34rem,85%)] rounded-2xl rounded-tl-md border border-red-500/25 bg-red-500/[0.07] px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-red-600 dark:text-red-300">
+          <div className="flex items-center gap-2 text-sm font-semibold text-err">
             <TriangleAlert size={15} />
             {err.title}
           </div>
-          <p className="mt-1 text-sm leading-relaxed text-red-900/70 dark:text-red-100/70">{err.body}</p>
+          <p className="mt-1 text-sm leading-relaxed text-err-soft">{err.body}</p>
         </div>
       </motion.div>
     );
@@ -172,7 +173,12 @@ function Bubble({ msg }: { msg: Message }) {
       {!isUser && <div className="self-start"><CoachAvatar /></div>}
 
       <div className={`flex min-w-0 max-w-[min(38rem,88%)] flex-col gap-1.5 ${isUser ? "items-end" : "items-start"}`}>
-        {displayText && (
+        {isUser && msg.mode === "summary" ? (
+          <div className="flex items-center gap-2 rounded-2xl rounded-br-md bg-gradient-to-br from-ember-500 to-ember-600 px-4 py-3 text-[15px] font-medium text-white shadow-[0_6px_20px_rgb(255_107_26/0.22)]">
+            <FileText size={16} />
+            Session summary
+          </div>
+        ) : displayText && (
           <div
             className={`msg-content px-4 py-3 ${
               isUser
@@ -221,11 +227,11 @@ function EmptyState({ mode, onSend }: { mode: Mode; onSend: (s: string) => void 
       className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-8 py-10 text-center"
     >
       <div className="relative">
-        <div className="flex size-24 items-center justify-center rounded-[1.75rem] border border-ember-500/25 bg-gradient-to-br from-ember-500/20 to-ember-600/5 text-5xl shadow-[0_0_60px_rgb(255_107_26/0.18)]">
-          🏀
+        <div className="flex size-24 items-center justify-center rounded-[1.75rem] border border-ember-500/25 bg-gradient-to-br from-ember-500/20 to-ember-600/5 text-ember-500 shadow-[0_0_60px_rgb(255_107_26/0.18)]">
+          <BasketballIcon size={52} strokeWidth={1.75} />
         </div>
-        <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-white dark:text-ink-950 ring-4 ring-ink-950">
-          ✓
+        <span className="absolute -bottom-1 -right-1 flex size-6 items-center justify-center rounded-full bg-ok text-[11px] font-bold text-ink-950 ring-4 ring-ink-950">
+          <Check size={13} strokeWidth={3} />
         </span>
       </div>
 
@@ -264,6 +270,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("chat");
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -272,18 +279,50 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
 
-  /* Voice */
+  /* Voice — browser Web Speech API (Chrome / Edge / Safari; not Firefox) */
+  const flashVoiceError = useCallback((msg: string) => {
+    setVoiceError(msg);
+    setTimeout(() => setVoiceError(null), 4500);
+  }, []);
+
   const toggleVoice = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert("Voice not supported in this browser."); return; }
-    if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
+    if (!SR) {
+      flashVoiceError("Voice input isn't supported in this browser. Try Chrome, Edge or Safari.");
+      return;
+    }
+    if (listening) { recognitionRef.current?.stop(); return; }
+
+    const VOICE_ERRORS: Record<string, string> = {
+      "not-allowed": "Microphone access is blocked. Allow it in your browser's site settings.",
+      "service-not-allowed": "Microphone access is blocked. Allow it in your browser's site settings.",
+      "no-speech": "Didn't catch that. Tap the mic and try again.",
+      "audio-capture": "No microphone found.",
+      network: "Speech service unreachable. Check your connection.",
+    };
+
     const rec = new SR();
-    rec.lang = "en-US"; rec.continuous = false; rec.interimResults = false;
-    rec.onresult = (e: any) => { setInput(e.results[0][0].transcript); setListening(false); };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    recognitionRef.current = rec; rec.start(); setListening(true);
-  }, [listening]);
+    rec.lang = navigator.language || "en-US";
+    rec.continuous = false;
+    rec.interimResults = true; // words appear in the box while you speak
+    rec.onresult = (e: any) => {
+      let transcript = "";
+      for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript;
+      setInput(transcript);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 140) + "px"; }
+      });
+    };
+    rec.onerror = (e: any) => {
+      setListening(false);
+      if (e.error !== "aborted") flashVoiceError(VOICE_ERRORS[e.error] ?? `Voice input failed (${e.error}).`);
+    };
+    rec.onend = () => { setListening(false); textareaRef.current?.focus(); };
+    recognitionRef.current = rec;
+    try { rec.start(); setListening(true); setVoiceError(null); }
+    catch { setListening(false); }
+  }, [listening, flashVoiceError]);
 
   /* Send */
   const send = useCallback(async (text?: string, overrideMode?: Mode) => {
@@ -294,10 +333,11 @@ export default function Home() {
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: activeMode === "summary" ? "📋 Session summary" : msg,
+      content: activeMode === "summary" ? "Session summary" : msg,
       mode: activeMode,
       timestamp: new Date(),
     };
+    recognitionRef.current?.stop();
     setMessages(prev => [...prev, userMsg]);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -385,8 +425,8 @@ export default function Home() {
 
           <div className="flex items-center gap-1.5">
             <div className="hidden items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/[0.07] px-2.5 py-1 sm:flex">
-              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500 dark:bg-emerald-400" />
-              <span className="font-mono text-[10px] font-medium tracking-wider text-emerald-600 dark:text-emerald-400">LIVE</span>
+              <span className="size-1.5 animate-pulse rounded-full bg-ok" />
+              <span className="font-mono text-[10px] font-medium tracking-wider text-ok">LIVE</span>
             </div>
             <ThemeToggle />
             {!isEmpty && (
@@ -468,6 +508,20 @@ export default function Home() {
             )}
           </AnimatePresence>
 
+          <AnimatePresence>
+            {voiceError && (
+              <motion.p
+                role="status"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mb-2 rounded-lg border border-red-500/25 bg-red-500/[0.07] px-3 py-2 text-xs text-err"
+              >
+                {voiceError}
+              </motion.p>
+            )}
+          </AnimatePresence>
+
           <div className="flex items-end gap-2 rounded-2xl border border-line bg-ink-900 py-2 pl-4 pr-2 shadow-[0_8px_30px_var(--shadow)] transition focus-within:border-ember-500/60 focus-within:shadow-[0_0_0_4px_rgb(255_107_26/0.1),0_8px_30px_var(--shadow)]">
             <textarea
               ref={textareaRef}
@@ -486,10 +540,10 @@ export default function Home() {
 
             <button
               onClick={toggleVoice}
-              title="Voice input"
-              aria-label="Voice input"
+              title={listening ? "Stop listening" : "Voice input"}
+              aria-label={listening ? "Stop listening" : "Voice input"}
               className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-ink-800 ${
-                listening ? "text-ember-400" : "text-dust"
+                listening ? "animate-pulse bg-ember-500/15 text-ember-400" : "text-dust"
               }`}
             >
               {listening ? <MicOff size={18} /> : <Mic size={18} />}

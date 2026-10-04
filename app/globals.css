@@ -8,9 +8,6 @@
    universal reset in this file silently wipes out every `p-*`, `px-*`,
    `m-*` utility in the app.
    ────────────────────────────────────────────────────────────────── */
-/* `dark:` variant follows the data-theme attribute set in layout.tsx */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
 /* ── Theme palettes ──────────────────────────────────────────────────
    Token names stay the same in both themes; only the values flip:
    ink-*  = surfaces (page → card → hover → code)
@@ -31,6 +28,9 @@
   --court-line: #c8a96e;
   --shadow: rgb(0 0 0 / 0.4);
   --glow: 0.13;
+  --err: #fca5a5;
+  --err-soft: rgb(254 226 226 / 0.7);
+  --ok: #34d399;
 }
 
 [data-theme="light"] {
@@ -48,6 +48,32 @@
   --court-line: #9a6a2c;
   --shadow: rgb(74 52 24 / 0.12);
   --glow: 0.1;
+  --err: #dc2626;
+  --err-soft: rgb(127 29 29 / 0.7);
+  --ok: #059669;
+}
+
+/* No saved choice yet → follow the OS setting */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --ink-950: #faf5ee;
+    --ink-900: #ffffff;
+    --ink-800: #f1e9dd;
+    --ink-700: #e8dece;
+    --line: #e2d6c4;
+    --chalk: #1f1a15;
+    --dust: #6f6558;
+    --ember-300: #b4410b;
+    --ember-400: #c2410c;
+    --court: #f2dfb9;
+    --court-line: #9a6a2c;
+    --shadow: rgb(74 52 24 / 0.12);
+    --glow: 0.1;
+    --err: #dc2626;
+    --err-soft: rgb(127 29 29 / 0.7);
+    --ok: #059669;
+  }
 }
 
 @theme {
@@ -67,6 +93,9 @@
   --color-ember-400: var(--ember-400);
   --color-court: var(--court);
   --color-court-line: var(--court-line);
+  --color-err: var(--err);
+  --color-err-soft: var(--err-soft);
+  --color-ok: var(--ok);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-barlow), "Arial Narrow", ui-sans-serif, sans-serif;

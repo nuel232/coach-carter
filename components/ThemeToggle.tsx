@@ -6,18 +6,20 @@ import { Moon, Sun } from "lucide-react";
 type Theme = "light" | "dark";
 
 export default function ThemeToggle() {
-  // null until mounted: the real theme is set by the inline script in layout.tsx,
-  // so we read it from the DOM instead of guessing during server render.
+  // null until mounted. The server puts a saved choice on <html data-theme>;
+  // with none saved we fall back to the OS setting, same as the CSS does.
   const [theme, setTheme] = useState<Theme | null>(null);
 
   useEffect(() => {
-    setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+    const attr = document.documentElement.dataset.theme;
+    const system = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    setTheme(attr === "light" || attr === "dark" ? attr : system);
   }, []);
 
   const toggle = () => {
     const next: Theme = theme === "light" ? "dark" : "light";
     document.documentElement.dataset.theme = next;
-    try { localStorage.setItem("cc-theme", next); } catch {}
+    document.cookie = `cc-theme=${next}; path=/; max-age=31536000; samesite=lax`;
     setTheme(next);
   };
 

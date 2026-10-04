@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Barlow_Condensed, Inter } from "next/font/google";
+import { cookies } from "next/headers";
 
 import "./globals.css";
 
@@ -29,16 +30,15 @@ export const viewport: Viewport = {
   colorScheme: "dark light",
 };
 
-// Runs before first paint so the page never flashes the wrong theme.
-// Saved choice wins; otherwise follow the OS setting.
-const themeScript = `(function(){try{var t=localStorage.getItem("cc-theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="dark"}})();`;
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // The saved theme lives in a cookie so the server can put it on <html> directly:
+  // no inline <script> (React 19 warns on those) and no wrong-theme flash.
+  // With no cookie yet, globals.css follows the OS via prefers-color-scheme.
+  const saved = (await cookies()).get("cc-theme")?.value;
+  const theme = saved === "light" || saved === "dark" ? saved : undefined;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${sans.variable}`} suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
+    <html lang="en" className={`${display.variable} ${sans.variable}`} data-theme={theme}>
       <body className="antialiased">{children}</body>
     </html>
   );
