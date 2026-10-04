@@ -538,16 +538,43 @@ export default function Home() {
               className="max-h-36 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-relaxed text-chalk caret-ember-500 outline-none placeholder:text-dust/60"
             />
 
-            <button
-              onClick={toggleVoice}
-              title={listening ? "Stop listening" : "Voice input"}
-              aria-label={listening ? "Stop listening" : "Voice input"}
-              className={`flex size-10 shrink-0 items-center justify-center rounded-xl transition hover:bg-ink-800 ${
-                listening ? "animate-pulse bg-ember-500/15 text-ember-400" : "text-dust"
-              }`}
-            >
-              {listening ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
+            <div className="relative shrink-0">
+              <AnimatePresence>
+                {listening && (
+                  <motion.div
+                    role="status"
+                    aria-live="polite"
+                    initial={{ opacity: 0, y: 6, scale: 0.92 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.92 }}
+                    transition={{ duration: 0.18 }}
+                    className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-3 -translate-x-1/2"
+                  >
+                    <div className="relative flex items-center gap-1.5 whitespace-nowrap rounded-full border border-ember-500/40 bg-ink-900 px-3 py-1.5 shadow-[0_6px_20px_var(--shadow)]">
+                      <span className="flex items-center gap-1" aria-hidden>
+                        {[0, 1, 2].map(i => (
+                          <span key={i} className="typing-dot size-1.5 rounded-full bg-ember-500" />
+                        ))}
+                      </span>
+                      <span className="text-[11px] font-medium text-ember-400">Listening</span>
+                      {/* tail pointing at the mic */}
+                      <span className="absolute left-1/2 top-full size-2 -translate-x-1/2 -translate-y-1/2 rotate-45 border-b border-r border-ember-500/40 bg-ink-900" />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button
+                onClick={toggleVoice}
+                title={listening ? "Stop listening" : "Voice input"}
+                aria-label={listening ? "Stop listening" : "Voice input"}
+                className={`flex size-10 items-center justify-center rounded-xl transition hover:bg-ink-800 ${
+                  listening ? "bg-ember-500/15 text-ember-400" : "text-dust"
+                }`}
+              >
+                {listening ? <MicOff size={18} /> : <Mic size={18} />}
+              </button>
+            </div>
 
             <motion.button
               whileTap={{ scale: 0.9 }}
